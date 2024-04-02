@@ -46,6 +46,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - WheelOfTime
+    - sdl2
 
 tests:
   WheelOfTime-test:
