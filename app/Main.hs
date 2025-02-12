@@ -20,6 +20,10 @@ renderTexture renderer texture = do
   let (w, h) = (SDL.textureWidth ti, SDL.textureHeight ti)
   SDL.copy renderer texture Nothing (Just $ SDL.Rectangle (P $ V2 300 300) (V2 w h))
 
+untilM :: Monad m => m Bool -> m ()
+untilM act = go
+  where go = (`unless` go) =<< act
+
 -- Adapted from https://github.com/haskell-game/sdl2/blob/master/examples/twinklebear/Lesson04.hs
 main :: IO ()
 main = do
@@ -30,17 +34,15 @@ main = do
   renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
   image <- getDataFileName "blast.bmp" >>= loadTexture renderer
 
-  let loop = do
+  untilM $ do
     renderTexture renderer image
     SDL.present renderer
 
-    quit <- fmap (\ev -> case SDL.eventPayload ev of
+    fmap (\ev -> case SDL.eventPayload ev of
       SDL.QuitEvent -> True
-      SDL.KeyboardEvent e -> SDL.keyboardEventKeyMotion e ==  SDL.Pressed
+      SDL.KeyboardEvent e -> SDL.keyboardEventKeyMotion e == SDL.Pressed
       SDL.MouseButtonEvent e -> SDL.mouseButtonEventMotion e == SDL.Pressed
       _ -> False) SDL.waitEvent
-    unless quit loop
-  loop
 
   SDL.destroyRenderer renderer
   SDL.destroyWindow window
