@@ -3,6 +3,7 @@
 
 module Main (main) where
 
+import Game.Prelude
 import qualified SDL
 import SDL.Vect
 import Control.Monad (unless, join)
@@ -24,11 +25,6 @@ loadTexture renderer path = do
 untilM :: Monad m => m Bool -> m ()
 untilM act = go
   where go = (`unless` go) =<< act
-
--- | In do blocks, `let` is particular about the indentation of nested do blocks
--- Rewrite to binds to avoid double indenting
-is :: Applicative m => a -> m a
-is = pure
 
 -- Adapted from https://github.com/haskell-game/sdl2/blob/master/examples/twinklebear/Lesson04.hs
 main :: IO ()
