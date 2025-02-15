@@ -37,7 +37,9 @@ ghc-options:
 
 default-extensions:
   - LambdaCase
+  - MultiWayIf
   - TupleSections
+  - ScopedTypeVariables
 
 library:
   source-dirs: src
