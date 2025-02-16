@@ -28,13 +28,11 @@ untilM act = go
 shouldRight :: a -> Bool -> Either a a
 shouldRight a b = if b then Right a else Left a
 
-type World = V2 Int32
-type Screen = Point V2 Int32
 -- Adapted from https://github.com/haskell-game/sdl2/blob/master/examples/twinklebear/Lesson04.hs
 main :: IO ()
 main = do
   SDL.initialize [ SDL.InitVideo ]
-  window <- SDL.createWindow "Wheel of Time" $ SDL.defaultWindow { SDL.windowMode = SDL.Fullscreen }
+  window <- SDL.createWindow "Wheel of Time" $ SDL.defaultWindow { SDL.windowMode = SDL.FullscreenDesktop }
   renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
 
   image <- getDataFileName "blast.bmp" >>= loadTexture renderer
@@ -89,6 +87,7 @@ main = do
   sendTick <- R.readIORef handleTick
 
   untilM $ do
+    timeStart <- SDL.ticks
     SDL.clear renderer
     sendTick
     join $ R.readIORef handlePaint
@@ -97,7 +96,14 @@ main = do
     quits <- for events $ \event -> case SDL.eventPayload event of
       SDL.QuitEvent -> pure True
       _ -> False <$ sendEvent event
-    pure $ or quits
+    let quit = or quits
+    unless quit $ do
+      timeEnd <- SDL.ticks
+      let msPerFrame = 1000 `div` 60
+      let timeTaken = timeEnd - timeStart
+      unless (msPerFrame < timeTaken) $ do
+        SDL.delay $ msPerFrame - timeTaken
+    pure quit
 
   SDL.destroyRenderer renderer
   SDL.destroyWindow window
