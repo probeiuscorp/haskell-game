@@ -10,7 +10,8 @@ import SDL.Vect
 import Data.Word
 import Data.Int
 
-type World = V2 Int32
+type Field = Double
+type World = V2 Field
 type Screen = Point V2 Int32
 
 -- | In do blocks, `let` is particular about the indentation of nested do blocks

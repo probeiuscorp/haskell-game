@@ -5,7 +5,6 @@ module Main (main) where
 import Game.Prelude
 import qualified SDL
 import SDL.Vect
-import Data.Int
 import Data.Functor ((<&>))
 import Control.Monad (unless, join)
 import qualified Data.IORef as R
@@ -28,6 +27,10 @@ untilM act = go
 shouldRight :: a -> Bool -> Either a a
 shouldRight a b = if b then Right a else Left a
 
+maxLength len vec
+  | norm vec < len = vec
+  | otherwise = len *^ normalize vec
+
 -- Adapted from https://github.com/haskell-game/sdl2/blob/master/examples/twinklebear/Lesson04.hs
 main :: IO ()
 main = do
@@ -38,14 +41,15 @@ main = do
   image <- getDataFileName "blast.bmp" >>= loadTexture renderer
 
   handleEvent <- R.newIORef (undefined :: SDL.Event -> IO ())
-  handleTick <- R.newIORef (undefined :: IO ())
+  handleTick <- R.newIORef (undefined :: Field -> IO ())
   handlePaint <- R.newIORef (pure () :: IO ())
-  network <- compile $ do
+  network <- compile $ mdo
     (eMouseLocation :: Event Screen, setMouseLocation) <- newEvent
     (eAnyMouseButton :: Event SDL.MouseButtonEventData, setMouseButton) <- newEvent
 
-    (eTick :: Event (), setTick) <- newEvent
-    (bCamera :: Behavior (Screen -> World), _) <- newBehavior unP
+    (eTick :: Event Field, setTick) <- newEvent
+    (bCamera :: Behavior (Screen -> World), _) <- newBehavior $ \v -> unP $ fromIntegral <$> v
+    (bUnCamera :: Behavior (World -> Screen), _) <- newBehavior $ \v -> P $ fromIntegral . round <$> v
 
     (((eLMBUp, eLMBDown), (eRMBUp, eRMBDown)), _) <- is $
       first (both split . split) $ split $ eAnyMouseButton <&> \e ->
@@ -54,6 +58,13 @@ main = do
           SDL.ButtonLeft -> f Left
           SDL.ButtonRight -> f Right
           _ -> Right e
+
+    let initialPosition = V2 0 0 :: World
+    bPlayerTarget <- stepper initialPosition $ bCamera <@> (SDL.mouseButtonEventPos <$> eRMBDown)
+    let bPlayerVelocityTarget = liftA2 (\pos target -> 2 *^ maxLength 72 $ pos - target) bPlayerTarget bPlayer :: Behavior World
+    let easing = const
+    bPlayerVelocity <- accumB 0 $ easing <$> (bPlayerVelocityTarget <@ eTick)
+    bPlayer <- accumB 0 $ (+) <$> (((^*) <$> bPlayerVelocity) <@> eTick)
 
     let eIsCasting = mergeWith (const True) (const False) (const $ const False) eLMBUp eLMBDown
     bIsCasting <- stepper False eIsCasting
@@ -69,7 +80,7 @@ main = do
     let eCastCompleted = bCast <@ eCastingStop
     reactimate $ eCastCompleted <&> print . length
 
-    ePaint <- is $ eMouseLocation <&> \pos -> do
+    ePaint <- is $ (bUnCamera <*> bPlayer <@ eTick) <&> \pos -> do
       ti <- SDL.queryTexture image
       let (w, h) = (SDL.textureWidth ti, SDL.textureHeight ti)
       SDL.copy renderer image Nothing (Just $ SDL.Rectangle (fromIntegral <$> pos) (V2 w h))
@@ -81,7 +92,7 @@ main = do
 
     reactimate $ R.writeIORef handlePaint `fmap` ePaint
     liftIO $ R.writeIORef handleEvent handler
-    liftIO $ R.writeIORef handleTick $ setTick ()
+    liftIO $ R.writeIORef handleTick setTick
   actuate network
   sendEvent <- R.readIORef handleEvent
   sendTick <- R.readIORef handleTick
@@ -89,7 +100,7 @@ main = do
   untilM $ do
     timeStart <- SDL.ticks
     SDL.clear renderer
-    sendTick
+    sendTick $ 1 / 60
     join $ R.readIORef handlePaint
     SDL.present renderer
     events <- SDL.pollEvents
