@@ -11,6 +11,7 @@ import qualified Data.IORef as R
 import Reactive.Banana
 import Reactive.Banana.Frameworks
 import Data.Traversable (for)
+import qualified Game.Data.Queue as Q
 import GHC.IsList (IsList(fromList))
 
 getDataFileName :: FilePath -> IO FilePath
@@ -32,6 +33,10 @@ maxLength len vec
   | norm vec < len = vec
   | otherwise = len *^ normalize vec
 
+data Command
+  = MoveTo World
+  deriving (Eq, Ord, Show)
+
 -- Adapted from https://github.com/haskell-game/sdl2/blob/master/examples/twinklebear/Lesson04.hs
 main :: IO ()
 main = do
@@ -47,6 +52,11 @@ main = do
   network <- compile $ mdo
     (eMouseLocation :: Event Screen, setMouseLocation) <- newEvent
     (eAnyMouseButton :: Event SDL.MouseButtonEventData, setMouseButton) <- newEvent
+    (eAnyKey :: Event SDL.KeyboardEventData, setAnyKey) <- newEvent
+    eShift <- is $ filterJust $ eAnyKey <&> \e -> if (SDL.keysymKeycode . SDL.keyboardEventKeysym) e `elem` [SDL.KeycodeLShift, SDL.KeycodeRShift]
+      then Just $ SDL.keyboardEventKeyMotion e == SDL.Pressed
+      else Nothing
+    bEnqueueCommand <- stepper False eShift
 
     (eTick :: Event Field, setTick) <- newEvent
     (bCamera :: Behavior (Screen -> World), _) <- newBehavior $ \v -> unP $ fromIntegral <$> v
@@ -61,6 +71,11 @@ main = do
           _ -> Right e
 
     let initialPosition = V2 0 0 :: World
+    let eCommand = MoveTo <$> (bCamera <@> (SDL.mouseButtonEventPos <$> eRMBDown))
+    bCommandQueue <- accumB (mempty :: Q.Queue Command) $ (((,) <$> bEnqueueCommand) <@> eCommand) <&> \(enqueue, command) queue -> if enqueue
+      then Q.enqueue command queue
+      else Q.singleton command
+    reactimate $ (print . length <$> bCommandQueue) <@ eLMBDown
     bPlayerTarget <- stepper initialPosition $ bCamera <@> (SDL.mouseButtonEventPos <$> eRMBDown)
     mover <- is $ \startPos bTarget -> mdo
       let bVelocityTarget = liftA2 (\pos target -> 2 *^ maxLength 72 $ pos - target) bTarget bPos :: Behavior World
@@ -101,6 +116,7 @@ main = do
     handler <- is $ \event -> case SDL.eventPayload event of
       SDL.MouseMotionEvent e -> setMouseLocation $ SDL.mouseMotionEventPos e
       SDL.MouseButtonEvent e -> setMouseButton e
+      SDL.KeyboardEvent e -> setAnyKey e
       _ -> pure ()
 
     reactimate $ R.writeIORef handlePaint `fmap` ePaint
