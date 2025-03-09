@@ -11,6 +11,7 @@ import qualified Data.IORef as R
 import Reactive.Banana
 import Reactive.Banana.Frameworks
 import Data.Traversable (for)
+import GHC.IsList (IsList(fromList))
 
 getDataFileName :: FilePath -> IO FilePath
 getDataFileName = return
@@ -61,10 +62,14 @@ main = do
 
     let initialPosition = V2 0 0 :: World
     bPlayerTarget <- stepper initialPosition $ bCamera <@> (SDL.mouseButtonEventPos <$> eRMBDown)
-    let bPlayerVelocityTarget = liftA2 (\pos target -> 2 *^ maxLength 72 $ pos - target) bPlayerTarget bPlayer :: Behavior World
-    let easing = const
-    bPlayerVelocity <- accumB 0 $ easing <$> (bPlayerVelocityTarget <@ eTick)
-    bPlayer <- accumB 0 $ (+) <$> (((^*) <$> bPlayerVelocity) <@> eTick)
+    mover <- is $ \startPos bTarget -> mdo
+      let bVelocityTarget = liftA2 (\pos target -> 2 *^ maxLength 72 $ pos - target) bTarget bPos :: Behavior World
+      let easing = const
+      bVelocity <- accumB 0 $ easing <$> (bVelocityTarget <@ eTick)
+      bPos <- accumB startPos $ (+) <$> (((^*) <$> bVelocity) <@> eTick)
+      pure bPos
+    bPlayer <- mover initialPosition bPlayerTarget
+    bMonster <- mover 600 bPlayer
 
     let eIsCasting = mergeWith (const True) (const False) (const $ const False) eLMBUp eLMBDown
     bIsCasting <- stepper False eIsCasting
@@ -80,10 +85,18 @@ main = do
     let eCastCompleted = bCast <@ eCastingStop
     reactimate $ eCastCompleted <&> print . length
 
-    ePaint <- is $ (bUnCamera <*> bPlayer <@ eTick) <&> \pos -> do
+    bPaintCasting <- is $ bCast <&> \cast -> do
+      let color = SDL.rendererDrawColor renderer
+      initialColor <- SDL.get color
+      color SDL.$= SDL.V4 155 180 30 0
+      SDL.drawLines renderer $ fromList $ fmap fromIntegral <$> cast
+      color SDL.$= initialColor
+    bPaintCreatures <- is $ (sequence_ <$>) . for [bPlayer, bMonster] $ \bPos -> (bUnCamera <*> bPos) <&> \pos -> do
       ti <- SDL.queryTexture image
       let (w, h) = (SDL.textureWidth ti, SDL.textureHeight ti)
       SDL.copy renderer image Nothing (Just $ SDL.Rectangle (fromIntegral <$> pos) (V2 w h))
+    bPaint <- is $ sequence_ <$> sequenceA [bPaintCreatures, bPaintCasting]
+    let ePaint = bPaint <@ eTick
 
     handler <- is $ \event -> case SDL.eventPayload event of
       SDL.MouseMotionEvent e -> setMouseLocation $ SDL.mouseMotionEventPos e
