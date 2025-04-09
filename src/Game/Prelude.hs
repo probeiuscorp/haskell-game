@@ -10,6 +10,13 @@ import SDL.Vect
 import Data.Word
 import Data.Int
 
+($$) = ($)
+infixr 6 $$
+
+(<<$>>) :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
+(<<$>>) = fmap . fmap
+infixl 4 <<$>>
+
 type Field = Double
 type World = V2 Field
 type Screen = Point V2 Int32

@@ -12,7 +12,10 @@ import Reactive.Banana
 import Reactive.Banana.Frameworks
 import Data.Traversable (for)
 import qualified Game.Data.Queue as Q
+import Game.Data.Cycled
 import GHC.IsList (IsList(fromList))
+import qualified Data.List.NonEmpty as NE
+import qualified Control.Lens as L
 
 getDataFileName :: FilePath -> IO FilePath
 getDataFileName = return
@@ -33,6 +36,11 @@ maxLength len vec
   | norm vec < len = vec
   | otherwise = len *^ normalize vec
 
+emitEvery :: MonadMoment m => Int -> Event a -> m (Event a)
+emitEvery n e = fmap (fmap snd . filterE ((== 0) . fst)) $ accumE (1 :: Int, undefined) $ e <&> \a (k, _) -> (posmod $ k + 1, a)
+  where
+    posmod k = if k >= n then k - n else k
+
 data Command
   = MoveTo World
   deriving (Eq, Ord, Show)
@@ -43,8 +51,9 @@ main = do
   SDL.initialize [ SDL.InitVideo ]
   window <- SDL.createWindow "Wheel of Time" $ SDL.defaultWindow { SDL.windowMode = SDL.FullscreenDesktop }
   renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
-
-  image <- getDataFileName "blast.bmp" >>= loadTexture renderer
+  let load asset = getDataFileName ("assets/" ++ asset ++ ".bmp") >>= loadTexture renderer
+  loadSet <- is $ \base -> fmap mkCycled $ traverse load $ NE.fromList $ (base ++) . ("-" ++) <$> ["0", "1", "2", "1"]
+  walkSet <- loadSet "celes-walk"
 
   handleEvent <- R.newIORef (undefined :: SDL.Event -> IO ())
   handleTick <- R.newIORef (undefined :: Field -> IO ())
@@ -59,6 +68,7 @@ main = do
     bEnqueueCommand <- stepper False eShift
 
     (eTick :: Event Field, setTick) <- newEvent
+    eAnim <- emitEvery 16 eTick
     (bCamera :: Behavior (Screen -> World), _) <- newBehavior $ \v -> unP $ fromIntegral <$> v
     (bUnCamera :: Behavior (World -> Screen), _) <- newBehavior $ \v -> P $ fromIntegral . round <$> v
 
@@ -100,16 +110,18 @@ main = do
     let eCastCompleted = bCast <@ eCastingStop
     reactimate $ eCastCompleted <&> print . length
 
+    bWalkTexture <- (fst <<$>>) $ accumB (next walkSet) $ next . snd <$ eAnim
     bPaintCasting <- is $ bCast <&> \cast -> do
       let color = SDL.rendererDrawColor renderer
       initialColor <- SDL.get color
       color SDL.$= SDL.V4 155 180 30 0
       SDL.drawLines renderer $ fromList $ fmap fromIntegral <$> cast
       color SDL.$= initialColor
-    bPaintCreatures <- is $ (sequence_ <$>) . for [bPlayer, bMonster] $ \bPos -> (bUnCamera <*> bPos) <&> \pos -> do
+    paintCreature <- is $ \(pos :: Screen) (image :: SDL.Texture) -> do
       ti <- SDL.queryTexture image
       let (w, h) = (SDL.textureWidth ti, SDL.textureHeight ti)
       SDL.copy renderer image Nothing (Just $ SDL.Rectangle (fromIntegral <$> pos) (V2 w h))
+    bPaintCreatures <- is $ (sequence_ <$>) . for [bPlayer, bMonster] $ \bPos -> paintCreature <$> (bUnCamera <*> bPos) <*> bWalkTexture
     bPaint <- is $ sequence_ <$> sequenceA [bPaintCreatures, bPaintCasting]
     let ePaint = bPaint <@ eTick
 
