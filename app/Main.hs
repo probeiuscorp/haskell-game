@@ -118,8 +118,7 @@ main = do
       SDL.drawLines renderer $ fromList $ fmap fromIntegral <$> cast
       color SDL.$= initialColor
     paintCreature <- is $ \(pos :: Screen) (image :: SDL.Texture) -> do
-      ti <- SDL.queryTexture image
-      let (w, h) = (SDL.textureWidth ti, SDL.textureHeight ti)
+      let (w, h) = both (* 4) (16, 24)
       SDL.copy renderer image Nothing (Just $ SDL.Rectangle (fromIntegral <$> pos) (V2 w h))
     bPaintCreatures <- is $ (sequence_ <$>) . for [bPlayer, bMonster] $ \bPos -> paintCreature <$> (bUnCamera <*> bPos) <*> bWalkTexture
     bPaint <- is $ sequence_ <$> sequenceA [bPaintCreatures, bPaintCasting]
