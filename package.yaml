@@ -1,4 +1,4 @@
-name:                WheelOfTime
+name:                Game
 version:             0.1.0.0
 github:              "probeiuscorp/haskell-game"
 license:             MIT
@@ -47,7 +47,7 @@ library:
   source-dirs: src
 
 executables:
-  WheelOfTime-exe:
+  Game-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
@@ -55,10 +55,10 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - WheelOfTime
+    - Game
 
 tests:
-  WheelOfTime-test:
+  Game-test:
     main:                Spec.hs
     source-dirs:         test
     ghc-options:
@@ -66,4 +66,4 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - WheelOfTime
+    - Game
