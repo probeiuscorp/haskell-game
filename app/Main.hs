@@ -12,6 +12,7 @@ import Reactive.Banana
 import Reactive.Banana.Frameworks
 import Data.Traversable (for)
 import qualified Game.Data.Queue as Q
+import Game.Data.BBox
 import Game.Data.Cycled
 import GHC.IsList (IsList(fromList))
 import qualified Data.List.NonEmpty as NE
@@ -95,6 +96,11 @@ main = do
       pure bPos
     bPlayer <- mover initialPosition bPlayerTarget
     bMonster <- mover 600 bPlayer
+
+    let bMonsterHitbox = mkCircleBB 100 <$> bMonster
+    let eIsCastingHittingMonster = (isWithin <$> bMonsterHitbox) <@> (bCamera <@> eCastingActive)
+    let eIsMonsterHurt = void $ filterE id eIsCastingHittingMonster
+    bHealth <- accumB (144 :: Int) (max 0 . subtract 4 <$ eIsMonsterHurt)
 
     let eIsCasting = mergeWith (const True) (const False) (const $ const False) eLMBUp eLMBDown
     bIsCasting <- stepper False eIsCasting
