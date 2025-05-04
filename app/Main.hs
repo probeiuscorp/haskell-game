@@ -4,6 +4,7 @@ module Main (main) where
 
 import Game.Prelude
 import qualified SDL
+import qualified SDL.Font as TTF
 import SDL.Vect
 import Data.Functor ((<&>))
 import Control.Monad (unless, join)
@@ -15,6 +16,7 @@ import qualified Game.Data.Queue as Q
 import Game.Data.BBox
 import Game.Data.Cycled
 import GHC.IsList (IsList(fromList))
+import Data.String (IsString(fromString))
 import qualified Data.List.NonEmpty as NE
 import qualified Control.Lens as L
 
@@ -50,8 +52,11 @@ data Command
 main :: IO ()
 main = do
   SDL.initialize [ SDL.InitVideo ]
+  TTF.initialize
+
   window <- SDL.createWindow "Wheel of Time" $ SDL.defaultWindow { SDL.windowMode = SDL.FullscreenDesktop }
   renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
+  font <- TTF.load "/usr/share/fonts/truetype/ubuntu/Ubuntu-M.ttf" 24
   let load asset = getDataFileName ("assets/" ++ asset ++ ".bmp") >>= loadTexture renderer
   loadSet <- is $ \base -> fmap mkCycled $ traverse load $ NE.fromList $ (base ++) . ("-" ++) <$> ["0", "1", "2", "1"]
   walkSet <- loadSet "celes-walk"
@@ -123,11 +128,21 @@ main = do
       color SDL.$= SDL.V4 155 180 30 0
       SDL.drawLines renderer $ fromList $ fmap fromIntegral <$> cast
       color SDL.$= initialColor
+    bPaintText <- is $ bHealth <&> \health -> do
+      let content = fromString $ show health
+      (w, h) <- both fromIntegral <$> TTF.size font content
+      let dim = V2 w h
+      surface <- TTF.blended font (SDL.V4 255 255 255 255) content
+      texture <- SDL.createTextureFromSurface renderer surface
+      bottomRight <- SDL.get $ SDL.windowSize window
+      SDL.copy renderer texture Nothing (Just (SDL.Rectangle (P $ (subtract 25 <$> bottomRight) - dim) dim))
+      SDL.freeSurface surface
+      SDL.destroyTexture texture
     paintCreature <- is $ \(pos :: Screen) (image :: SDL.Texture) -> do
       let (w, h) = both (* 4) (16, 24)
       SDL.copy renderer image Nothing (Just $ SDL.Rectangle (fromIntegral <$> pos) (V2 w h))
     bPaintCreatures <- is $ (sequence_ <$>) . for [bPlayer, bMonster] $ \bPos -> paintCreature <$> (bUnCamera <*> bPos) <*> bWalkTexture
-    bPaint <- is $ sequence_ <$> sequenceA [bPaintCreatures, bPaintCasting]
+    bPaint <- is $ sequence_ <$> sequenceA [bPaintCreatures, bPaintCasting, bPaintText]
     let ePaint = bPaint <@ eTick
 
     handler <- is $ \event -> case SDL.eventPayload event of
@@ -164,4 +179,6 @@ main = do
 
   SDL.destroyRenderer renderer
   SDL.destroyWindow window
+  TTF.free font
+  TTF.quit
   SDL.quit
