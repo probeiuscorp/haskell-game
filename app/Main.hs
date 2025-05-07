@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Main (main) where
 
@@ -48,6 +49,24 @@ data Command
   = MoveTo World
   deriving (Eq, Ord, Show)
 
+class Config cfg where
+  defaultConfig :: cfg
+
+data MoverConfig = MoverConfig
+  { mvMaxVelocity :: Double
+  , mvAcceleration :: World
+  }
+instance Config MoverConfig where
+  defaultConfig = MoverConfig 72 2
+
+data Cast = Cast
+  { _hasHit :: Bool
+  } deriving (Eq, Ord, Show)
+$(L.makeLenses ''Cast)
+
+paints :: Traversable t => t (Behavior (IO a)) -> Behavior (IO ())
+paints = fmap sequence_ . sequenceA
+
 -- Adapted from https://github.com/haskell-game/sdl2/blob/master/examples/twinklebear/Lesson04.hs
 main :: IO ()
 main = do
@@ -58,7 +77,7 @@ main = do
   renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
   font <- TTF.load "/usr/share/fonts/truetype/ubuntu/Ubuntu-M.ttf" 24
   let load asset = getDataFileName ("assets/" ++ asset ++ ".bmp") >>= loadTexture renderer
-  loadSet <- is $ \base -> fmap mkCycled $ traverse load $ NE.fromList $ (base ++) . ("-" ++) <$> ["0", "1", "2", "1"]
+  let loadSet base = fmap mkCycled $ traverse load $ NE.fromList $ (base ++) . ("-" ++) <$> ["0", "1", "2", "1"]
   walkSet <- loadSet "celes-walk"
 
   handleEvent <- R.newIORef (undefined :: SDL.Event -> IO ())
@@ -93,28 +112,38 @@ main = do
       else Q.singleton command
     reactimate $ (print . length <$> bCommandQueue) <@ eLMBDown
     bPlayerTarget <- stepper initialPosition $ bCamera <@> (SDL.mouseButtonEventPos <$> eRMBDown)
-    mover <- is $ \startPos bTarget -> mdo
-      let bVelocityTarget = liftA2 (\pos target -> 2 *^ maxLength 72 $ pos - target) bTarget bPos :: Behavior World
+    mover <- is $ \(cfg :: MoverConfig) startPos bTarget -> mdo
+      let bVelocityTarget = liftA2 (\pos target -> mvAcceleration cfg *^ maxLength (mvMaxVelocity cfg) $ pos - target) bTarget bPos :: Behavior World
       let easing = const
       bVelocity <- accumB 0 $ easing <$> (bVelocityTarget <@ eTick)
       bPos <- accumB startPos $ (+) <$> (((^*) <$> bVelocity) <@> eTick)
       pure bPos
-    bPlayer <- mover initialPosition bPlayerTarget
-    bMonster <- mover 600 bPlayer
+    bPlayer <- mover defaultConfig initialPosition bPlayerTarget
+    bMonster <- mover defaultConfig 600 bPlayer
 
     let bMonsterHitbox = mkCircleBB 100 <$> bMonster
-    let eIsCastingHittingMonster = (isWithin <$> bMonsterHitbox) <@> (bCamera <@> eCastingActive)
+    let eIsCastingHittingMonster = (isWithin <$> bMonsterHitbox) <@> eCastPos
     let eIsMonsterHurt = void $ filterE id eIsCastingHittingMonster
     bHealth <- accumB (144 :: Int) (max 0 . subtract 4 <$ eIsMonsterHurt)
 
     let eIsCasting = mergeWith (const True) (const False) (const $ const False) eLMBUp eLMBDown
     bIsCasting <- stepper False eIsCasting
     let (eCastingStop, _eCastingStop) = split $ shouldRight () <$> eIsCasting
-    bMouseLocation <- stepper (P $ V2 0 0) eMouseLocation
-    let eTickedMouse = bMouseLocation <@ eTick
-    let eCastingActive = whenE bIsCasting eTickedMouse
+    bMouseLocation <- stepper (P 0) eMouseLocation
+    let eIsCastingPos = (,) <$> (bCamera <*> bMouseLocation) <@> eIsCasting
+    let eMouseEdge = eIsCastingPos <&> \(pos, isMouse) -> if isMouse then Just pos else Nothing
+    let eMouseMove = whenE bIsCasting $ Just <$> (bCamera <*> bMouseLocation) <@ eTick
+    let eCastTarget = filterJust $ unionWith const eMouseEdge eMouseMove
+    bCastTarget <- stepper 0 eCastTarget
+    mkCastMover <- is $ \(pos :: World, isMouse :: Bool) -> if isMouse
+      then Just <<$>> mover (MoverConfig 288 12) pos bCastTarget
+      else pure $ pure Nothing
+    ebCastPos <- execute $ eIsCastingPos <&> mkCastMover
+    initial <- mkCastMover (0, False)
+    bCastPos <- switchB initial ebCastPos
+    let eCastPos = filterJust $ whenE bIsCasting $ bCastPos <@ eTick
     eCast <- is $ unions
-      [ (:) <$> eCastingActive
+      [ (:) <$> eCastPos
       , const [] <$ eCastingStop
       ]
     bCast <- accumB [] eCast
@@ -122,12 +151,17 @@ main = do
     reactimate $ eCastCompleted <&> print . length
 
     bWalkTexture <- (fst <<$>>) $ accumB (next walkSet) $ next . snd <$ eAnim
-    bPaintCasting <- is $ bCast <&> \cast -> do
+    bPaintCastingLine <- is $ (fmap <$> bUnCamera <*> bCast) <&> \cast -> do
       let color = SDL.rendererDrawColor renderer
-      initialColor <- SDL.get color
       color SDL.$= SDL.V4 155 180 30 0
       SDL.drawLines renderer $ fromList $ fmap fromIntegral <$> cast
-      color SDL.$= initialColor
+    bPaintCastingTarget <- is $ (fmap <$> bUnCamera <*> bCastPos) <&> \case
+      Just pos -> do
+        let color = SDL.rendererDrawColor renderer
+        color SDL.$= SDL.V4 180 180 180 0
+        SDL.drawRect renderer $ Just $ flip SDL.Rectangle 17 $ (fromIntegral <$> pos) - 8
+      Nothing -> pure ()
+    let bPaintCasting = paints [bPaintCastingLine, bPaintCastingTarget]
     bPaintText <- is $ bHealth <&> \health -> do
       let content = fromString $ show health
       (w, h) <- both fromIntegral <$> TTF.size font content
@@ -142,7 +176,7 @@ main = do
       let (w, h) = both (* 4) (16, 24)
       SDL.copy renderer image Nothing (Just $ SDL.Rectangle (fromIntegral <$> pos) (V2 w h))
     bPaintCreatures <- is $ (sequence_ <$>) . for [bPlayer, bMonster] $ \bPos -> paintCreature <$> (bUnCamera <*> bPos) <*> bWalkTexture
-    bPaint <- is $ sequence_ <$> sequenceA [bPaintCreatures, bPaintCasting, bPaintText]
+    bPaint <- is $ paints [bPaintCreatures, bPaintCasting, bPaintText]
     let ePaint = bPaint <@ eTick
 
     handler <- is $ \event -> case SDL.eventPayload event of
@@ -160,6 +194,7 @@ main = do
 
   untilM $ do
     timeStart <- SDL.ticks
+    SDL.rendererDrawColor renderer SDL.$= 0
     SDL.clear renderer
     sendTick $ 1 / 60
     join $ R.readIORef handlePaint
