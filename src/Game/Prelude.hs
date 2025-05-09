@@ -9,6 +9,7 @@ import Control.Monad (void)
 import SDL.Vect
 import Data.Word
 import Data.Int
+import qualified Debug.Trace as Debug
 
 ($$) = ($)
 infixr 6 $$
@@ -28,3 +29,11 @@ is = pure
 
 both :: Bifunctor t => (a -> b) -> t a a -> t b b
 both f = bimap f f
+
+-- | Having to import trace then remove the import later is really painful
+debug :: String -> a -> a
+debug = Debug.trace
+debugShow :: Show a => a -> b -> b
+debugShow = Debug.traceShow
+debugShowId :: Show a => a -> a
+debugShowId = Debug.traceShowId
