@@ -16,6 +16,7 @@ import Data.Traversable (for)
 import qualified Game.Data.Queue as Q
 import Game.Data.BBox
 import Game.Data.Cycled
+import Game.Casts
 import GHC.IsList (IsList(fromList))
 import Data.String (IsString(fromString))
 import qualified Data.List.NonEmpty as NE
@@ -46,8 +47,9 @@ emitEvery n e = fmap (fmap snd . filterE ((== 0) . fst)) $ accumE (1 :: Int, und
     posmod k = if k >= n then k - n else k
 
 data Command
-  = MoveTo World
+  = MoveTo { _cmdMoveTarget :: World }
   deriving (Eq, Ord, Show)
+$(L.makePrisms ''Command)
 
 class Config cfg where
   defaultConfig :: cfg
@@ -106,23 +108,39 @@ main = do
           _ -> Right e
 
     let initialPosition = V2 0 0 :: World
-    let eCommand = MoveTo <$> (bCamera <@> (SDL.mouseButtonEventPos <$> eRMBDown))
-    bCommandQueue <- accumB (mempty :: Q.Queue Command) $ (((,) <$> bEnqueueCommand) <@> eCommand) <&> \(enqueue, command) queue -> if enqueue
-      then Q.enqueue command queue
-      else Q.singleton command
-    reactimate $ (print . length <$> bCommandQueue) <@ eLMBDown
-    bPlayerTarget <- stepper initialPosition $ bCamera <@> (SDL.mouseButtonEventPos <$> eRMBDown)
+    let eIssueCommand = MoveTo <$> (bCamera <@> (SDL.mouseButtonEventPos <$> eRMBDown))
+    let emitNothing = Nothing
+    let emitNewCommand = Just . Just
+    let emitClearCurrentCommand = Just Nothing
+    eEnqueue <- is $ pairBE bEnqueueCommand eIssueCommand <&> \(enqueue, command) queue -> if enqueue
+      then (emitNothing, Q.enqueue command queue)
+      else (emitNewCommand command, Q.singleton command)
+    eDequeue <- is $ eCommandFinished $> \q -> (first emitNewCommand <$> Q.dequeue q) ?? (emitClearCurrentCommand, q)
+    let eChangeCommand = annihilateMerge eEnqueue eDequeue
+    (emCommand, bCommandQueue) <- mapAccum mempty eChangeCommand
+    let eCommand = filterJust emCommand
+    bCommand <- stepper Nothing eCommand
     mover <- is $ \(cfg :: MoverConfig) startPos bTarget -> mdo
       let bVelocityTarget = liftA2 (\pos target -> mvAcceleration cfg *^ maxLength (mvMaxVelocity cfg) $ pos - target) bTarget bPos :: Behavior World
       let easing = const
       bVelocity <- accumB 0 $ easing <$> (bVelocityTarget <@ eTick)
       bPos <- accumB startPos $ (+) <$> (((^*) <$> bVelocity) <@> eTick)
       pure bPos
-    bPlayer <- mover defaultConfig initialPosition bPlayerTarget
+    bPlayer <- mover defaultConfig initialPosition bTarget
+    mkHandleCommand <- is $ \case
+      Nothing -> pure (bPlayer, never)
+      Just (MoveTo target) -> do
+        let bHasReachedTarget = liftA2 (\tar pos -> norm (tar - pos) < 0.5) bTarget bPlayer
+        let eHasReachedTarget = void $ whenE bHasReachedTarget eTick
+        pure (pure target, eHasReachedTarget)
+    initialHandleCommand <- mkHandleCommand Nothing
+    eHandleCommand <- execute $ mkHandleCommand <$> eCommand
+    bTarget <- switchB (fst initialHandleCommand) $ fst <$> eHandleCommand
+    eCommandFinished <- switchE (snd initialHandleCommand) $ snd <$> eHandleCommand
     bMonster <- mover defaultConfig 600 bPlayer
 
     let bMonsterHitbox = mkCircleBB 100 <$> bMonster
-    let eIsCastingHittingMonster = (isWithin <$> bMonsterHitbox) <@> eCastPos
+    let eIsCastingHittingMonster = (isWithin <$> bMonsterHitbox) <@> eCastPointerPos
     let eIsMonsterHurt = void $ filterE id eIsCastingHittingMonster
     bHealth <- accumB (144 :: Int) (max 0 . subtract 4 <$ eIsMonsterHurt)
 
@@ -130,31 +148,30 @@ main = do
     bIsCasting <- stepper False eIsCasting
     let (eCastingStop, _eCastingStop) = split $ shouldRight () <$> eIsCasting
     bMouseLocation <- stepper (P 0) eMouseLocation
-    let eIsCastingPos = (,) <$> (bCamera <*> bMouseLocation) <@> eIsCasting
+    let eIsCastingPos = pairBE (bCamera <*> bMouseLocation) eIsCasting
     let eMouseEdge = eIsCastingPos <&> \(pos, isMouse) -> if isMouse then Just pos else Nothing
     let eMouseMove = whenE bIsCasting $ Just <$> (bCamera <*> bMouseLocation) <@ eTick
     let eCastTarget = filterJust $ unionWith const eMouseEdge eMouseMove
     bCastTarget <- stepper 0 eCastTarget
-    mkCastMover <- is $ \(pos :: World, isMouse :: Bool) -> if isMouse
+    bCastPos <- switchM (0, False) eIsCastingPos $ \(pos, isMouse) -> if isMouse
       then Just <<$>> mover (MoverConfig 288 12) pos bCastTarget
       else pure $ pure Nothing
-    ebCastPos <- execute $ eIsCastingPos <&> mkCastMover
-    initial <- mkCastMover (0, False)
-    bCastPos <- switchB initial ebCastPos
-    let eCastPos = filterJust $ whenE bIsCasting $ bCastPos <@ eTick
+    let eCastPointerPos = filterJust $ whenE bIsCasting $ bCastPos <@ eTick
+    let eCastPos = pairBE bPlayer eCastPointerPos :: Event (World, World)
     eCast <- is $ unions
       [ (:) <$> eCastPos
       , const [] <$ eCastingStop
       ]
     bCast <- accumB [] eCast
     let eCastCompleted = bCast <@ eCastingStop
-    reactimate $ eCastCompleted <&> print . length
+    reactimate $ eCastCompleted <&> print . scoreSweepCast
 
     bWalkTexture <- (fst <<$>>) $ accumB (next walkSet) $ next . snd <$ eAnim
-    bPaintCastingLine <- is $ (fmap <$> bUnCamera <*> bCast) <&> \cast -> do
+    let bScreenCast = (\uncamera cast -> uncamera . snd <$> cast) <$> bUnCamera <*> bCast
+    bPaintCastingLine <- is $ bScreenCast <&> \cast -> do
       let color = SDL.rendererDrawColor renderer
       color SDL.$= SDL.V4 155 180 30 0
-      SDL.drawLines renderer $ fromList $ fmap fromIntegral <$> cast
+      SDL.drawLines renderer $ fromList $ fromIntegral <<$>> cast
     bPaintCastingTarget <- is $ (fmap <$> bUnCamera <*> bCastPos) <&> \case
       Just pos -> do
         let color = SDL.rendererDrawColor renderer
