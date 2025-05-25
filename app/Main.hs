@@ -116,7 +116,8 @@ main = do
       then (emitNothing, Q.enqueue command queue)
       else (emitNewCommand command, Q.singleton command)
     eDequeue <- is $ eCommandFinished $> \q -> (first emitNewCommand <$> Q.dequeue q) ?? (emitClearCurrentCommand, q)
-    let eChangeCommand = annihilateMerge eEnqueue eDequeue
+    -- Dequeue then enqueue, and only keep new command event from enqueue
+    let eChangeCommand = unionWith (\enq deq q -> enq . snd $ deq q) eEnqueue eDequeue
     (emCommand, bCommandQueue) <- mapAccum mempty eChangeCommand
     let eCommand = filterJust emCommand
     bCommand <- stepper Nothing eCommand
