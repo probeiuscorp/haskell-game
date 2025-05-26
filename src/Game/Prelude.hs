@@ -10,10 +10,10 @@ import Control.Monad (void)
 import Reactive.Banana.Combinators
 import SDL.Vect
 import Data.Word
-import Data.Int
 import qualified Debug.Trace as Debug
 import Data.Maybe (fromMaybe)
 import Reactive.Banana.Frameworks (execute, MomentIO)
+import Foreign.C (CInt)
 
 ($$) = ($)
 infixr 6 $$
@@ -24,7 +24,8 @@ infixl 4 <<$>>
 
 type Field = Double
 type World = V2 Field
-type Screen = Point V2 Int32
+type ScreenField = CInt
+type Screen = Point V2 ScreenField
 
 -- | In do blocks, `let` is particular about the indentation of nested do blocks
 -- Rewrite to binds to avoid double indenting

@@ -21,6 +21,8 @@ import GHC.IsList (IsList(fromList))
 import Data.String (IsString(fromString))
 import qualified Data.List.NonEmpty as NE
 import qualified Control.Lens as L
+import Data.Int (Int32)
+import Foreign.C (CInt(CInt))
 
 getDataFileName :: FilePath -> IO FilePath
 getDataFileName = return
@@ -76,6 +78,7 @@ main = do
   TTF.initialize
 
   window <- SDL.createWindow "Wheel of Time" $ SDL.defaultWindow { SDL.windowMode = SDL.FullscreenDesktop }
+  SDL.windowGrab window SDL.$= True
   renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
   font <- TTF.load "/usr/share/fonts/truetype/ubuntu/Ubuntu-M.ttf" 24
   let load asset = getDataFileName ("assets/" ++ asset ++ ".bmp") >>= loadTexture renderer
@@ -85,6 +88,7 @@ main = do
   handleEvent <- R.newIORef (undefined :: SDL.Event -> IO ())
   handleTick <- R.newIORef (undefined :: Field -> IO ())
   handlePaint <- R.newIORef (pure () :: IO ())
+  let toScreenField = fromIntegral :: Int32 -> ScreenField
   network <- compile $ mdo
     (eMouseLocation :: Event Screen, setMouseLocation) <- newEvent
     (eAnyMouseButton :: Event SDL.MouseButtonEventData, setMouseButton) <- newEvent
@@ -93,11 +97,22 @@ main = do
       then Just $ SDL.keyboardEventKeyMotion e == SDL.Pressed
       else Nothing
     bEnqueueCommand <- stepper False eShift
+    let bWindowSize = pure $ V2 1920 1080 :: Behavior (V2 ScreenField)
+    let dpPanArea = 20
+    panDirection <- is $ \(width :: ScreenField) (x :: ScreenField) -> if
+      | x <= dpPanArea -> -1
+      | x >= width - dpPanArea -> 1
+      | otherwise -> 0
+    let bMousePanDirection = pairA bMouseLocation bWindowSize <&> \(mousePos, windowSize) -> (panDirection <$> windowSize) <*> unP mousePos
+    let eMousePanCamera = ((\mouseDir dt -> (144 * dt) *^ mouseDir) <$> bMousePanDirection) <@> eUITick
+    bCameraPosition <- accumB 0 $ (+) <$> eMousePanCamera
 
     (eTick :: Event Field, setTick) <- newEvent
+    -- eUITick might have different dt than eTick
+    let eUITick = eTick
     eAnim <- emitEvery 16 eTick
-    (bCamera :: Behavior (Screen -> World), _) <- newBehavior $ \v -> unP $ fromIntegral <$> v
-    (bUnCamera :: Behavior (World -> Screen), _) <- newBehavior $ \v -> P $ fromIntegral . round <$> v
+    let (bCamera :: Behavior (Screen -> World)) = bCameraPosition <&> \c v -> unP (fromIntegral <$> v) + c
+    let (bUnCamera :: Behavior (World -> Screen)) = bCameraPosition <&> \c v -> P $ fromIntegral . round <$> v - c
 
     (((eLMBUp, eLMBDown), (eRMBUp, eRMBDown)), _) <- is $
       first (both split . split) $ split $ eAnyMouseButton <&> \e ->
@@ -108,7 +123,7 @@ main = do
           _ -> Right e
 
     let initialPosition = V2 0 0 :: World
-    let eIssueCommand = MoveTo <$> (bCamera <@> (SDL.mouseButtonEventPos <$> eRMBDown))
+    let eIssueCommand = MoveTo <$> (bCamera <@> (fmap toScreenField . SDL.mouseButtonEventPos <$> eRMBDown))
     let emitNothing = Nothing
     let emitNewCommand = Just . Just
     let emitClearCurrentCommand = Just Nothing
@@ -172,12 +187,12 @@ main = do
     bPaintCastingLine <- is $ bScreenCast <&> \cast -> do
       let color = SDL.rendererDrawColor renderer
       color SDL.$= SDL.V4 155 180 30 0
-      SDL.drawLines renderer $ fromList $ fromIntegral <<$>> cast
+      SDL.drawLines renderer $ fromList cast
     bPaintCastingTarget <- is $ (fmap <$> bUnCamera <*> bCastPos) <&> \case
       Just pos -> do
         let color = SDL.rendererDrawColor renderer
         color SDL.$= SDL.V4 180 180 180 0
-        SDL.drawRect renderer $ Just $ flip SDL.Rectangle 17 $ (fromIntegral <$> pos) - 8
+        SDL.drawRect renderer $ Just $ flip SDL.Rectangle 17 $ pos - 8
       Nothing -> pure ()
     let bPaintCasting = paints [bPaintCastingLine, bPaintCastingTarget]
     bPaintText <- is $ bHealth <&> \health -> do
@@ -192,13 +207,13 @@ main = do
       SDL.destroyTexture texture
     paintCreature <- is $ \(pos :: Screen) (image :: SDL.Texture) -> do
       let (w, h) = both (* 4) (16, 24)
-      SDL.copy renderer image Nothing (Just $ SDL.Rectangle (fromIntegral <$> pos) (V2 w h))
+      SDL.copy renderer image Nothing (Just $ SDL.Rectangle pos (V2 w h))
     bPaintCreatures <- is $ (sequence_ <$>) . for [bPlayer, bMonster] $ \bPos -> paintCreature <$> (bUnCamera <*> bPos) <*> bWalkTexture
     bPaint <- is $ paints [bPaintCreatures, bPaintCasting, bPaintText]
     let ePaint = bPaint <@ eTick
 
     handler <- is $ \event -> case SDL.eventPayload event of
-      SDL.MouseMotionEvent e -> setMouseLocation $ SDL.mouseMotionEventPos e
+      SDL.MouseMotionEvent e -> setMouseLocation $ toScreenField <$> SDL.mouseMotionEventPos e
       SDL.MouseButtonEvent e -> setMouseButton e
       SDL.KeyboardEvent e -> setAnyKey e
       _ -> pure ()
