@@ -97,14 +97,15 @@ main = do
       then Just $ SDL.keyboardEventKeyMotion e == SDL.Pressed
       else Nothing
     bEnqueueCommand <- stepper False eShift
-    let bWindowSize = pure $ V2 1920 1080 :: Behavior (V2 ScreenField)
+    (eWindowResize, pushWindowResize) <- newEvent
+    bWindowSize <- resampleM eWindowResize $ SDL.get $ SDL.windowSize window
     let dpPanArea = 20
     panDirection <- is $ \(width :: ScreenField) (x :: ScreenField) -> if
       | x <= dpPanArea -> -1
       | x >= width - dpPanArea -> 1
       | otherwise -> 0
     let bMousePanDirection = pairA bMouseLocation bWindowSize <&> \(mousePos, windowSize) -> (panDirection <$> windowSize) <*> unP mousePos
-    let eMousePanCamera = ((\mouseDir dt -> (144 * dt) *^ mouseDir) <$> bMousePanDirection) <@> eUITick
+    let eMousePanCamera = ((\mouseDir dt -> (288 * dt) *^ mouseDir) <$> bMousePanDirection) <@> eUITick
     bCameraPosition <- accumB 0 $ (+) <$> eMousePanCamera
 
     (eTick :: Event Field, setTick) <- newEvent
@@ -216,6 +217,7 @@ main = do
       SDL.MouseMotionEvent e -> setMouseLocation $ toScreenField <$> SDL.mouseMotionEventPos e
       SDL.MouseButtonEvent e -> setMouseButton e
       SDL.KeyboardEvent e -> setAnyKey e
+      SDL.WindowSizeChangedEvent _ -> pushWindowResize ()
       _ -> pure ()
 
     reactimate $ R.writeIORef handlePaint `fmap` ePaint

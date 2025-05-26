@@ -58,6 +58,12 @@ debugShowId = Debug.traceShowId
 annihilateMerge :: Event a -> Event a -> Event a
 annihilateMerge e1 e2 = filterJust $ mergeWith Just Just (const . const $ Nothing) e1 e2
 
+resampleM :: Event () -> MomentIO a -> MomentIO (Behavior a)
+resampleM e m = do
+  initial <- m
+  em <- execute $ m <$ e
+  stepper initial em
+
 -- | Drop events which satisfy predicate on previous event
 changesE :: MonadMoment m => (a -> a -> Bool) -> Event a -> m (Event a)
 changesE p e = do
