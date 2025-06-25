@@ -77,7 +77,7 @@ main = do
   SDL.initialize [ SDL.InitVideo ]
   TTF.initialize
 
-  window <- SDL.createWindow "Wheel of Time" $ SDL.defaultWindow { SDL.windowMode = SDL.FullscreenDesktop }
+  window <- SDL.createWindow "Selxz Em" $ SDL.defaultWindow { SDL.windowMode = SDL.FullscreenDesktop }
   SDL.windowGrab window SDL.$= True
   renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
   font <- TTF.load "/usr/share/fonts/truetype/ubuntu/Ubuntu-M.ttf" 24
