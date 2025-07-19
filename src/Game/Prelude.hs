@@ -8,6 +8,7 @@ import Data.Functor (($>), (<&>))
 import Data.Bifunctor (bimap, first, second, Bifunctor)
 import Control.Monad (void)
 import Reactive.Banana.Combinators
+import qualified SDL
 import SDL.Vect
 import Data.Word
 import qualified Debug.Trace as Debug
@@ -15,12 +16,41 @@ import Data.Maybe (fromMaybe)
 import Reactive.Banana.Frameworks (execute, MomentIO)
 import Foreign.C (CInt)
 
-($$) = ($)
-infixr 6 $$
+($:) :: (a -> b) -> a -> b
+($:) = ($)
+infixr 6 $:
 
-(<<$>>) :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
-(<<$>>) = fmap . fmap
-infixl 4 <<$>>
+($$) :: Functor f => (a -> b) -> f a -> f b
+($$) = fmap
+infixl 4 $$
+
+($$$) :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
+($$$) = fmap . fmap
+infixl 4 $$$
+
+($$$$) :: (Functor f, Functor g, Functor h) => (a -> b) -> f (g (h a)) -> f (g (h b))
+($$$$) = fmap . ($$$)
+infixl 4 $$$$
+
+(#) :: a -> (a -> b) -> b
+(#) = flip ($)
+infixl 1 #
+
+(##) :: Functor f => f a -> (a -> b) -> f b
+(##) = flip ($$)
+infixl 4 ##
+
+(###) :: (Functor f, Functor g) => f (g a) -> (a -> b) -> f (g b)
+(###) = flip ($$$)
+infixl 4 ###
+
+(####) :: (Functor f, Functor g, Functor h) => f (g (h a)) -> (a -> b) -> f (g (h b))
+(####) = flip ($$$$)
+infixl 4 ####
+
+(@@) :: Behavior (a -> b) -> Event a -> Event b
+(@@) = (<@>)
+infixl 4 @@
 
 type Field = Double
 type World = V2 Field
@@ -83,3 +113,9 @@ true :: a -> b -> a
 true = const
 false :: a -> b -> b
 false = const id
+
+withValue stateVar v (m :: IO ()) = do
+  old <- SDL.get stateVar
+  stateVar SDL.$= v
+  m
+  stateVar SDL.$= old
