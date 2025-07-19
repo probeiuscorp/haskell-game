@@ -41,6 +41,7 @@ ghc-options:
 default-extensions:
   - LambdaCase
   - MultiWayIf
+  - TemplateHaskell
   - TupleSections
   - ScopedTypeVariables
   - RecursiveDo
