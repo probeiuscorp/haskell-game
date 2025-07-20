@@ -8,7 +8,6 @@ import qualified SDL.Font as TTF
 import SDL.Vect
 import Control.Monad (unless, join)
 import qualified Data.IORef as R
-import Reactive.Banana
 import Reactive.Banana.Frameworks
 import Data.Traversable (for)
 import qualified Game.Data.Queue as Q
@@ -152,7 +151,7 @@ main = do
     mkHandleCommand <- is $ \case
       Nothing -> pure (bPlayer, never)
       Just (MoveTo target) -> do
-        let bHasReachedTarget = liftA2 (\tar pos -> norm (tar - pos) < 0.5) bTarget bPlayer
+        let bHasReachedTarget = liftA2 ((< 0.5) . norm .: (-)) bTarget bPlayer
         let eHasReachedTarget = void $ whenE bHasReachedTarget eTick
         pure (pure target, eHasReachedTarget)
     initialHandleCommand <- mkHandleCommand Nothing

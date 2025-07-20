@@ -55,7 +55,7 @@ infixr 6 <+>
 (.:.) = (.) . (.) . (.)
 (.::) :: (a -> b) -> (c -> d -> e -> f -> a) -> (c -> d -> e -> f -> b)
 (.::) = (.) . (.) . (.) . (.)
-infixr 9 .: , .:. , .::
+infixr 8 .: , .:. , .::
 
 type Field = Double
 type World = V2 Field
