@@ -1,5 +1,6 @@
 module Game.Prelude (
   module Game.Prelude,
+  module Reactive.Banana,
   ($>), bimap, first, second, void,
   V2(V2), Word32
 ) where
@@ -7,7 +8,7 @@ module Game.Prelude (
 import Data.Functor (($>), (<&>))
 import Data.Bifunctor (bimap, first, second, Bifunctor)
 import Control.Monad (void)
-import Reactive.Banana.Combinators
+import Reactive.Banana
 import qualified SDL
 import SDL.Vect
 import Data.Word
@@ -22,15 +23,11 @@ infixr 6 $:
 
 ($$) :: Functor f => (a -> b) -> f a -> f b
 ($$) = fmap
-infixl 4 $$
-
 ($$$) :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
 ($$$) = fmap . fmap
-infixl 4 $$$
-
 ($$$$) :: (Functor f, Functor g, Functor h) => (a -> b) -> f (g (h a)) -> f (g (h b))
 ($$$$) = fmap . ($$$)
-infixl 4 $$$$
+infixl 4 $$, $$$, $$$$
 
 (#) :: a -> (a -> b) -> b
 (#) = flip ($)
@@ -38,19 +35,27 @@ infixl 1 #
 
 (##) :: Functor f => f a -> (a -> b) -> f b
 (##) = flip ($$)
-infixl 4 ##
-
 (###) :: (Functor f, Functor g) => f (g a) -> (a -> b) -> f (g b)
 (###) = flip ($$$)
-infixl 4 ###
-
 (####) :: (Functor f, Functor g, Functor h) => f (g (h a)) -> (a -> b) -> f (g (h b))
 (####) = flip ($$$$)
-infixl 4 ####
+infixl 4 ##, ###, ####
 
 (@@) :: Behavior (a -> b) -> Event a -> Event b
 (@@) = (<@>)
 infixl 4 @@
+
+(<+>) :: (Applicative f, Semigroup a) => f a -> f a -> f a
+(<+>) = liftA2 (<>)
+infixr 6 <+>
+
+(.:) :: (a -> b) -> (c -> d -> a) -> (c -> d -> b)
+(.:) = (.) . (.)
+(.:.) :: (a -> b) -> (c -> d -> e -> a) -> (c -> d -> e -> b)
+(.:.) = (.) . (.) . (.)
+(.::) :: (a -> b) -> (c -> d -> e -> f -> a) -> (c -> d -> e -> f -> b)
+(.::) = (.) . (.) . (.) . (.)
+infixr 9 .: , .:. , .::
 
 type Field = Double
 type World = V2 Field

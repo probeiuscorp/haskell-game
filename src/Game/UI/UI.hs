@@ -1,10 +1,11 @@
 module Game.UI.UI (
   UI(..), box, text, none,
   HasSide(..), Side, Axis, Dim,
-  BoxLayout(..), boxAlign, boxBackgroundColor, boxPadding, TextStyle(..), textStyleFontColor, textStyleFontSize,
+  BoxLayout(..), boxAlign, boxSize, boxBackgroundColor, boxPadding, TextStyle(..), textStyleFontColor, textStyleFontSize,
+  Alignment(..), Measurement(..), px, mz,
   tl, tr, bl, br, top, left, right, bottom,
   x, y, xy,
-  start, center, end, padding, bg,
+  start, center, end, modSize, w, h, size, fullSize, p, bg,
   fontColor, fontSize,
 ) where
 
@@ -47,22 +48,37 @@ replaceAxis :: a -> Axis -> V2 a -> V2 a
 replaceAxis a (Axis modX modY) (V2 x' y') = V2 (if' modX a x') (if' modY a y')
 
 data Alignment = AlignStart | AlignCenter | AlignEnd
+data Measurement = Px CInt | MzFn (CInt -> CInt)
+px :: CInt -> Measurement
+px = Px
+mz :: (CInt -> CInt) -> Measurement
+mz = MzFn
 
 type Config a = a -> a
 data BoxLayout = BoxLayout
   { _boxAlign :: V2 Alignment
+  , _boxSize :: V2 (Maybe Measurement)
   , _boxPadding :: V4 CInt
   , _boxBackgroundColor :: Maybe (V4 Word8)
   }
 L.makeLenses ''BoxLayout
 emptyBoxLayout :: BoxLayout
-emptyBoxLayout = BoxLayout (pure AlignStart) 0 Nothing
+emptyBoxLayout = BoxLayout (pure AlignStart) (pure Nothing) 0 Nothing
 
 start, center, end :: Axis -> Config BoxLayout
 (V3 start center end) = V3 AlignStart AlignCenter AlignEnd ## \a -> L.over boxAlign . replaceAxis a
 
-padding :: HasSide s => CInt -> s -> Config BoxLayout
-padding mz = L.over boxPadding . replaceSide mz . toSide
+modSize :: Axis -> Maybe Measurement -> Config BoxLayout
+modSize axis mmz = L.over boxSize $ replaceAxis mmz axis
+w, h, size :: Measurement -> Config BoxLayout
+w = modSize x . Just
+h = modSize y . Just
+size = modSize xy . Just
+fullSize :: Axis -> Config BoxLayout
+fullSize = flip modSize Nothing
+
+p :: HasSide s => CInt -> s -> Config BoxLayout
+p padding = L.over boxPadding . replaceSide padding . toSide
 
 bg :: V4 Word8 -> Config BoxLayout
 bg = L.over boxBackgroundColor . const . Just
