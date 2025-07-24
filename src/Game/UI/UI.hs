@@ -2,7 +2,7 @@ module Game.UI.UI (
   UI(..), box, text, none,
   HasSide(..), Side, Axis, Dim,
   BoxLayout(..), boxAlign, boxSize, boxBackgroundColor, boxPadding, TextStyle(..), textStyleFontColor, textStyleFontSize,
-  Alignment(..), Measurement(..), px, mz,
+  Alignment(..), Measurement(..), px, ratio, mz,
   tl, tr, bl, br, top, left, right, bottom,
   x, y, xy,
   start, center, end, modSize, w, h, size, fullSize, p, bg,
@@ -48,9 +48,11 @@ replaceAxis :: a -> Axis -> V2 a -> V2 a
 replaceAxis a (Axis modX modY) (V2 x' y') = V2 (if' modX a x') (if' modY a y')
 
 data Alignment = AlignStart | AlignCenter | AlignEnd
-data Measurement = Px CInt | MzFn (CInt -> CInt)
+data Measurement = MzPx CInt | MzRatio Rational | MzFn (CInt -> CInt)
 px :: CInt -> Measurement
-px = Px
+px = MzPx
+ratio :: Rational -> Measurement
+ratio = MzRatio
 mz :: (CInt -> CInt) -> Measurement
 mz = MzFn
 

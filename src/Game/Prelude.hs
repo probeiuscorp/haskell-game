@@ -31,7 +31,7 @@ infixl 4 $$, $$$, $$$$
 
 (#) :: a -> (a -> b) -> b
 (#) = flip ($)
-infixl 1 #
+infixr 1 #
 
 (##) :: Functor f => f a -> (a -> b) -> f b
 (##) = flip ($$)
@@ -39,7 +39,11 @@ infixl 1 #
 (###) = flip ($$$)
 (####) :: (Functor f, Functor g, Functor h) => f (g (h a)) -> (a -> b) -> f (g (h b))
 (####) = flip ($$$$)
-infixl 4 ##, ###, ####
+infixr 4 ##, ###, ####
+
+(%*) :: Applicative f => f a -> f (a -> b) -> f b
+(%*) = flip (<*>)
+infixr 4 %*
 
 (@@) :: Behavior (a -> b) -> Event a -> Event b
 (@@) = (<@>)

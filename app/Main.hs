@@ -19,8 +19,8 @@ import Data.String (IsString(fromString))
 import qualified Data.List.NonEmpty as NE
 import qualified Control.Lens as L
 import Data.Int (Int32)
-import Game.UI.UI
 import Game.UI.RenderUI (setupRenderUI)
+import Game.Dialogue (bDialogueUI)
 
 getDataFileName :: FilePath -> IO FilePath
 getDataFileName = return
@@ -68,11 +68,6 @@ $(L.makeLenses ''Cast)
 
 paints :: Traversable t => t (Behavior (IO a)) -> Behavior (IO ())
 paints = fmap sequence_ . sequenceA
-
-ui :: UI
-ui = box (padding 16 xy) $
-  box (padding 24 xy . bg (V4 255 0 0 255)) $
-    text (fontSize 42) "emam ka Selxz dazyel yundin vi stogyin, ogxzhxz smizjanaskz ska ulud. yum emikxnak tevum mikum da kanulz yel an."
 
 -- Adapted from https://github.com/haskell-game/sdl2/blob/master/examples/twinklebear/Lesson04.hs
 main :: IO ()
@@ -214,7 +209,7 @@ main = do
       let (w, h) = both (* 4) (16, 24)
       SDL.copy renderer image Nothing (Just $ SDL.Rectangle pos (V2 w h))
     bPaintCreatures <- is $ (sequence_ $$) . for [bPlayer, bMonster] $ \bPos -> paintCreature $$ (bUnCamera <*> bPos) <*> bWalkTexture
-    let bPaintUI = bWindowSize ## \windowSize -> renderUI (SDL.Rectangle 0 windowSize) ui
+    let bPaintUI = bDialogueUI %* bWindowSize ## renderUI . SDL.Rectangle 0
     let bPaint = paints [bPaintCreatures, bPaintCasting, bPaintText, bPaintUI]
     let ePaint = bPaint <@ eTick
 

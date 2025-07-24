@@ -43,21 +43,33 @@ placeWithin aligns size (SDL.Rectangle (SDL.P boxTL) bounds) = SDL.Rectangle (SD
       UI.AlignCenter -> start + (end - start - v) `div` 2
       UI.AlignEnd -> end - v
 
+applyAspectRatio :: V2 CInt -> V2 (Either CInt Rational) -> V2 CInt
+applyAspectRatio bounds = (\case
+  (V2 (Left x) (Left y)) -> V2 x y
+  (V2 (Left x) (Right q)) -> V2 x (w x q)
+  (V2 (Right q) (Left y)) -> V2 (w y q) y
+  (V2 (Right q1) (Right q2)) -> w $$ bounds <*> V2 q1 q2
+  ) {- HLint ignore applyAspectRatio -} where
+    w :: CInt -> Rational -> CInt
+    w x q = fromIntegral . round $ fromIntegral x * q
+
 type RenderUI = UI.Dim -> UI.UI -> IO ()
 renderUI :: SDL.Renderer -> FromSetup -> RenderUI
 renderUI renderer loadFontSize = go
   where
     textureSize texture = V2 (SDL.textureWidth texture) (SDL.textureHeight texture)
-    querySize t = textureSize $$ SDL.queryTexture t
+    querySize = fmap textureSize . SDL.queryTexture
     go :: RenderUI
     go _ UI.UINone = pure ()
     go dim@(SDL.Rectangle _ bounds) (UI.UIBox (UI.BoxLayout align sizeSpec padding mColor) ui) = do
+      eSize <- is $ pairA sizeSpec bounds ## \(t0, d0) -> flip (maybe $ Left d0) t0 $: \case
+        UI.MzFn fn -> Left $ fn d0
+        UI.MzRatio q -> Right q
+        UI.MzPx x -> Left x
+      let contentBox = minusPadding padding $ placeWithin align (applyAspectRatio bounds eSize) dim
       forM_ mColor $ \color -> withValue (SDL.rendererDrawColor renderer) color $
-        SDL.fillRect renderer $ Just dim
-      size <- is $ pairA sizeSpec bounds ## \(t0, d0) -> flip (maybe d0) t0 $: \case
-        UI.MzFn fn -> fn d0
-        UI.Px x -> x
-      go (minusPadding padding $ placeWithin align size dim) ui
+        SDL.fillRect renderer $ Just contentBox
+      go contentBox ui
     go dim (UI.UICanvas render) = render dim
     go (SDL.Rectangle boxTL (V2 width _)) (UI.UIText style strContent) = do
       let content = fromString strContent
